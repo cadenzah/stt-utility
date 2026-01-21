@@ -5,8 +5,8 @@ import FormData from "form-data";
 
 import '@dotenvx/dotenvx/config';
 
-// const AUDIO_DIR = "./audio";
-const AUDIO_DIR = "./sample";
+const AUDIO_DIR = "./audio";
+// const AUDIO_DIR = "./sample";
 const OUTPUT_DIR = "./output";
 
 const INVOKE_URL = process.env.CLOVA_INVOKE_URL; 
@@ -19,19 +19,64 @@ if (!INVOKE_URL || !SECRET_KEY) {
 
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
+function msToTime(ms) {
+  const totalSec = Math.floor(ms / 1000);
+
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+
+  return [
+    String(hours).padStart(2, "0"),
+    String(minutes).padStart(2, "0"),
+    String(seconds).padStart(2, "0"),
+  ].join(":");
+}
+
+/**
+ * 화자별로 보기 좋게 텍스트 포맷
+ */
+function formatWithSpeaker(segments = []) {
+  if (!segments.length) return "";
+
+  let result = "";
+  let lastSpeaker = null;
+
+  for (const seg of segments) {
+    const speaker = seg.speaker?.name || "UNKNOWN";
+    const time = msToTime(seg.start ?? 0);
+
+    if (speaker !== lastSpeaker) {
+      result += `\n[${speaker}] [${time}]\n`;
+      lastSpeaker = speaker;
+    }
+
+    result += `${seg.text}\n`;
+  }
+
+  return result.trim();
+}
+
 async function transcribeFile(filePath) {
   const filename = path.basename(filePath);
-  const outPath = path.join(OUTPUT_DIR, `${path.parse(filename).name}.txt`);
+  const outPath = path.join(
+    OUTPUT_DIR,
+    `${path.parse(filename).name}.txt`
+  );
 
   console.log(`▶️ STT 요청: ${filename}`);
 
   const requestBody = {
     language: "ko-KR",
     completion: "sync",
-    callback: "",
-    userdata: "",
-    wordAlignment: true,
     fullText: true,
+    wordAlignment: false,
+
+    speakerDiarization: {
+      enable: true,
+      speakerCountMin: 1,
+      speakerCountMax: 4,
+    },
   };
 
   const form = new FormData();
@@ -54,11 +99,10 @@ async function transcribeFile(filePath) {
       }
     );
 
-    // Python 예시처럼 JSON이 response body로 옴
-    const data = res.data;
-    const text = data.text ?? "";
-    fs.writeFileSync(outPath, text, "utf-8");
+    const segments = res.data.segments || [];
+    const formattedText = formatWithSpeaker(segments);
 
+    fs.writeFileSync(outPath, formattedText, "utf-8");
     console.log(`✅ 저장됨: ${outPath}`);
   } catch (err) {
     console.error(`❌ 실패: ${filename}`);
@@ -78,6 +122,7 @@ async function run() {
   for (const f of files) {
     await transcribeFile(path.join(AUDIO_DIR, f));
   }
+
   console.log("🎉 모든 파일 처리 완료");
 }
 
