@@ -11,6 +11,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "openai": "^6.16.0"
+    "@dotenvx/dotenvx": "^1.51.4",
+    "axios": "^1.13.2",
+    "form-data": "^4.0.5"
   }
 }

@@ -1,56 +1,83 @@
 import fs from "fs";
 import path from "path";
-import OpenAI from "openai";
+import axios from "axios";
+import FormData from "form-data";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import '@dotenvx/dotenvx/config';
 
-const AUDIO_DIR = "./audio";
+// const AUDIO_DIR = "./audio";
+const AUDIO_DIR = "./sample";
 const OUTPUT_DIR = "./output";
 
-if (!fs.existsSync(OUTPUT_DIR)) {
-  fs.mkdirSync(OUTPUT_DIR);
+const INVOKE_URL = process.env.CLOVA_INVOKE_URL; 
+const SECRET_KEY = process.env.SECRET_KEY; // Secret Key (domain builder에서 발급된 Secret)
+
+if (!INVOKE_URL || !SECRET_KEY) {
+  console.error("❌ INVOKE_URL / SECRET_KEY 필요");
+  process.exit(1);
 }
 
+if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
+
 async function transcribeFile(filePath) {
-  const fileName = path.basename(filePath);
-  const outputFile = path.join(
-    OUTPUT_DIR,
-    `${path.parse(fileName).name}.txt`
-  );
+  const filename = path.basename(filePath);
+  const outPath = path.join(OUTPUT_DIR, `${path.parse(filename).name}.txt`);
 
-  console.log(`▶️ STT 시작: ${fileName}`);
+  console.log(`▶️ STT 요청: ${filename}`);
 
-  const transcription = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(filePath),
-    model: "whisper-1",
-    language: "ko",
-    response_format: "text",
+  const requestBody = {
+    language: "ko-KR",
+    completion: "sync",
+    callback: "",
+    userdata: "",
+    wordAlignment: true,
+    fullText: true,
+  };
+
+  const form = new FormData();
+  form.append("media", fs.createReadStream(filePath));
+  form.append("params", JSON.stringify(requestBody), {
+    contentType: "application/json",
   });
 
-  fs.writeFileSync(outputFile, transcription, "utf-8");
+  try {
+    const res = await axios.post(
+      `${INVOKE_URL}/recognizer/upload`,
+      form,
+      {
+        headers: {
+          ...form.getHeaders(),
+          "X-CLOVASPEECH-API-KEY": SECRET_KEY,
+        },
+        maxBodyLength: Infinity,
+        timeout: 0,
+      }
+    );
 
-  console.log(`✅ 완료: ${fileName} → ${outputFile}`);
+    // Python 예시처럼 JSON이 response body로 옴
+    const data = res.data;
+    const text = data.text ?? "";
+    fs.writeFileSync(outPath, text, "utf-8");
+
+    console.log(`✅ 저장됨: ${outPath}`);
+  } catch (err) {
+    console.error(`❌ 실패: ${filename}`);
+    if (err.response) {
+      console.error(err.response.status, err.response.data);
+    } else {
+      console.error(err.message);
+    }
+  }
 }
 
 async function run() {
   const files = fs
     .readdirSync(AUDIO_DIR)
-    .filter((file) =>
-      [".mp3", ".m4a", ".wav", ".aac"].includes(path.extname(file))
-    );
+    .filter((f) => /\.(mp3|wav|m4a|aac)$/i.test(f));
 
-  for (const file of files) {
-    const filePath = path.join(AUDIO_DIR, file);
-
-    try {
-      await transcribeFile(filePath);
-    } catch (err) {
-      console.error(`❌ 실패: ${file}`, err.message);
-    }
+  for (const f of files) {
+    await transcribeFile(path.join(AUDIO_DIR, f));
   }
-
   console.log("🎉 모든 파일 처리 완료");
 }
 
