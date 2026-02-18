@@ -6,6 +6,7 @@ import FormData from "form-data";
 import '@dotenvx/dotenvx/config';
 
 const AUDIO_DIR = "./audio";
+// const AUDIO_DIR = "./splitted";
 // const AUDIO_DIR = "./sample";
 const OUTPUT_DIR = "./output";
 
